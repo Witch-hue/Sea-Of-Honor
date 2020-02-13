@@ -1,0 +1,13 @@
+{
+    "disableAutoUpdate": false,
+    "name": "SOH-Guide",
+    "options": {
+        "niceName": "Sea of Honor",
+        "guiName": "SOH(Guide)"
+    },
+    "author": "ZC / Witch",
+    "description": "testing inprog",
+    "servers": ["https://raw.githubusercontent.com/Witch-hue/Sea-Of-Honor/master/"],
+    "supportUrl": "https://github.com/tera-mod/Witch-hue/Sea-Of-Honor/master/",
+    "version": "90.02"
+}

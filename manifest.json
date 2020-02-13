@@ -1,0 +1,32 @@
+{
+    "files": {
+        "README.md": "2b00759271a6017d4b89b3c4aa6e0d0ba49691034bd6dbfe922c51eb6e2e0f4c",
+        "TEST_JS_Inspect.bat": "89002cee1d529817c33ef7b9d1967aa3e7f4f0ee0442e22a56e09d1f6821bd35",
+        "boss.js": "e6327da557f60889fa79c738eb7d225920b6335bca0781c4907be4498c784f76",
+        "index.js": "c68adba6b4d4fde5063825c723f77862d6d2479a3829290d5e0ee9cab49f3e3a",
+        "module.json": "ea37fa58a053d26f2d359af1e4ee6737ec0f79a860eb8b27cda78713814860e2"
+    },
+    "defs": {
+        "C_PLAYER_LOCATION": 5,
+        "S_ABNORMALITY_BEGIN": 4,
+        "S_ABNORMALITY_END": 1,
+        "S_ABNORMALITY_REFRESH": 2,
+        "S_ACTION_STAGE": 9,
+        "S_BOSS_GAGE_INFO": 3,
+        "S_CHAT": 3,
+        "S_CREATURE_ROTATE": 2,
+        "S_DESPAWN_BUILD_OBJECT": 2,
+        "S_DESPAWN_COLLECTION": 2,
+        "S_DESPAWN_DROPITEM": 4,
+        "S_DUNGEON_EVENT_MESSAGE": 2,
+        "S_LEAVE_PARTY": 1,
+        "S_LEAVE_PARTY_MEMBER": 2,
+        "S_PARTY_MEMBER_LIST": 7,
+        "S_QUEST_BALLOON": 1,
+        "S_SPAWN_BUILD_OBJECT": 2,
+        "S_SPAWN_COLLECTION": 4,
+        "S_SPAWN_DROPITEM": 8,
+        "S_SPAWN_NPC": 11,
+        "S_SPAWN_PROJECTILE": 5
+    }
+}
