@@ -1,7 +1,7 @@
 module.exports = {
 	// Entering the dungeon
 	DungeonInfo : [
-		
+
 		{zone: 3020, string: 'Entering the dungeon <font color="#56B4E9">Sea of Honor</font>'}
 	],
 	// Sea of Honor
@@ -25,15 +25,8 @@ module.exports = {
         {id: 107, msg: "人类 男 祭师_毁灭 发射体2"}
 	],
 	SOH_BOSS_3 : [  // Ironfang Dixie
-        {id: 101, msg: "해적단장_combo1_노말"},
-        {id: 102, msg: "해적단장_combo1R_공용"},
-        {id: 103, msg: "해적단장_combo2_노말"},
-        {id: 104, msg: "해적단장_combo2R_공용"},
-        {id: 105, msg: "해적단장_combo3_노말"},
-        {id: 106, msg: "해적단장_combo3R_공용"},
-        {id: 107, msg: "해적단장_combo4_노말"},
         {id: 108, msg: "해적단장_blastslash_노말"},
-        {id: 109, msg: "해적단장_sideslash_노말"},
+        {id: 109, msg: "Side Slash"},
         {id: 120, msg: "해적단장_차지4_SelfBuffOn_공용"},
         {id: 121, msg: "해적단장_차지1_SelfBuffOn_공용"},
         {id: 122, msg: "해적단장_차지2_SelfBuffOn_공용"},

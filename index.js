@@ -1318,19 +1318,19 @@ module.exports = function Tera_Guide(mod) {
 		curLocation = event.loc;
 		curAngle = event.w;
 	});
-	mod.command.add("点", (a1, a2, a3, a4) => {
+	mod.command.add("a", (a1, a2, a3, a4) => {
 		Number(a1), Number(a2), Number(a3), Number(a4);
 		SpawnThing(a1, a2, a3, a4);
 	});
-	mod.command.add("线", (b1, b2, b3, b4) => {
+	mod.command.add("b", (b1, b2, b3, b4) => {
 		Number(b1), Number(b2), Number(b3), Number(b4);
 		SpawnString(b1, b2, b3, b4);
 	});
-	mod.command.add("圆", (c1, c2, c3) => {
+	mod.command.add("c", (c1, c2, c3) => {
 		Number(c1), Number(c2), Number(c3);
 		SpawnCircle(c1, c2, 10, c3);
 	});
-	mod.command.add("半圆", (d1, d2, d3) => {
+	mod.command.add("d", (d1, d2, d3) => {
 		Number(d1), Number(d2), Number(d3);
 		Half_Circle(d1, d2, 10, d3);
 	});

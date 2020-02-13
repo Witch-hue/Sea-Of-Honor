@@ -2,8 +2,8 @@
     "files": {
         "README.md": "2b00759271a6017d4b89b3c4aa6e0d0ba49691034bd6dbfe922c51eb6e2e0f4c",
         "TEST_JS_Inspect.bat": "89002cee1d529817c33ef7b9d1967aa3e7f4f0ee0442e22a56e09d1f6821bd35",
-        "boss.js": "e6327da557f60889fa79c738eb7d225920b6335bca0781c4907be4498c784f76",
-        "index.js": "d9dcf8b969cb9999499cc1441fe46d57593ce236a8aec3be7dee4ba5c41a95e2",
+        "boss.js": "d9c8dbd663ade2d8c73ec2388b2f0aad44eecef195b0ce457d740b49bd88c301",
+        "index.js": "f4a5e43879247d20a8b7efebfbd1583a92ae271529e018b348bf0813122f54b6",
         "module.json": "c5c6647d75a7322fb55bd3483f5eac44b5b8e1ef6bff8981866f16f274db8c45"
     },
     "defs": {
