@@ -63,7 +63,7 @@ module.exports = function Tera_Guide(mod) {
 		tipMsg             = "";
 	// 控制命令
 
-	mod.command.add(["辅助", "guide"], (arg) => {
+	mod.command.add(["SOH"], (arg) => {
 		if (!arg) {
 			Enabled = !Enabled;
 			mod.command.message("副本提示(Guide) " + (Enabled ? "启用(ON)" : "禁用(OFF)"));
