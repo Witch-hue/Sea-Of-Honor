@@ -6,9 +6,8 @@ let {DungeonInfo,
 
 module.exports = function Tera_Guide(mod) {
 	let Enabled            =  true, // 总开关
+		CleanItems         = false, // true 仅提示 文字通知, 无光柱以及花朵范围
 		SendToStream       = false, // true 关闭队长通知, 并将消息发送到聊天[代理]频道
-		BossLog            = false,
-		debug              = false,
 		itemID1            =     1, // 告示牌: 1一般布告栏, 2兴高采烈布告栏, 3狂人布告栏
 		itemID2            = 98260, // 战利品: 古龍貝勒古斯的頭 (光柱), 369: 鑽石
 		itemID3            =   413, // 采集物: 413调味草
@@ -18,13 +17,16 @@ module.exports = function Tera_Guide(mod) {
 	// 定义变量
 	let hooks              = [],
 		job                = -1,
-		partyMembers       = [],
+		TipMsg             = "",    // 可变文字
+		partyMembers       = [],    // 队员信息
+		partyMakers        = [],    // 队员标记
 		isTank             = false, // 坦克职业
 		isHealer           = false, // 补师职业
 		whichzone          = null,  // 登陆地区(zone)
 		whichmode          = null,  // 副本地图(huntingZoneId)
 		whichboss          = null,  // 区域位置(templateId)
 		boss_GameID        = null,  // BOSS gameId
+		enraged            = false, // BOSS 愤怒
 		boss_HP            = 0,     // BOSS 血量%
 		boss_CurLocation   = {},    // BOSS 坐标
 		boss_CurAngle      = 0,     // BOSS 角度
@@ -57,26 +59,35 @@ module.exports = function Tera_Guide(mod) {
 		power              = false, // 充能计数
 		Level              = 0,     // 充能层数
 		levelMsg           = [],    // 充能文字 数组
-		powerMsg           = "",    // 充能文字
+		PowerMsg           = "",    // 充能文字
 		// AQ
-		myColor            = null,
-		tipMsg             = "";
+		myColor            = null,  // 红蓝诅咒
+		// SI
+		bossBuff           = 0;     // 紫绿武器
 	// 控制命令
-
 	mod.command.add(["SOH"], (arg) => {
 		if (!arg) {
 			Enabled = !Enabled;
 			mod.command.message("副本提示(Guide) " + (Enabled ? "启用(ON)" : "禁用(OFF)"));
 		} else {
 			switch (arg) {
+				case "cl":
+				case "clean":
+				case "纯净":
+					CleanItems = !CleanItems;
+					mod.command.message("纯净模式(Clean) " + (CleanItems ? "文字(ON)" : "花朵(OFF)"));
+					break;
+				case "st":
 				case "stream":
 				case "主播":
 					SendToStream = !SendToStream;
 					mod.command.message("主播模式(Stream) " + (SendToStream ? "启用(ON)" : "禁用(OFF)"));
 					break;
 				case "info":
+				case "状态":
 					mod.command.message("模块开关: " + Enabled);
-					mod.command.message("主播模式 " + (SendToStream ? "启用" : "禁用"));
+					mod.command.message("纯净模式: " + CleanItems);
+					mod.command.message("主播模式: " + SendToStream);
 					mod.command.message("登陆地区: " + whichzone);
 					mod.command.message("副本地图: " + whichmode);
 					mod.command.message("区域位置: " + whichboss);
@@ -84,14 +95,6 @@ module.exports = function Tera_Guide(mod) {
 					mod.command.message("isTank: "   + isTank);
 					mod.command.message("isHealer: " + isHealer);
 					mod.command.message("partyMembers: " + partyMembers.length);
-					break;
-				case "log":
-					BossLog = !BossLog;
-					mod.command.message("Boss-Log: " + (BossLog ? "ON" : "OFF"));
-					break;
-				case "debug":
-					debug = !debug;
-					mod.command.message("debug: " + (debug ? "on" : "off"));
 					break;
 				default :
 					mod.command.message("无效的参数!");
@@ -121,30 +124,32 @@ module.exports = function Tera_Guide(mod) {
 		} else {
 			unload();
 		}
-	})
+	});
 
 	mod.hook('S_PARTY_MEMBER_LIST', 7, (event) => {
 		partyMembers = event.members;
-	})
+		// partyMembers = event.members.filter(m => !mod.game.me.is(m.gameId));
+	});
 
 	mod.hook('S_LEAVE_PARTY_MEMBER', 2, (event) => {
-		partyMembers = partyMembers.filter(obj => obj.name != event.name);
-	})
+		partyMembers = partyMembers.filter(m => m.playerId != event.playerId);
+	});
 
 	mod.hook('S_LEAVE_PARTY', 1, (event) => {
 		partyMembers = [];
-	})
+	});
 
 	function load() {
 		if (!hooks.length) {
 			hook('S_BOSS_GAGE_INFO',        3, sBossGageInfo);
+			hook('S_NPC_STATUS',            2, sNpcStatus);
 			hook('S_SPAWN_NPC',            11, sSpawnNpc);
 			hook('S_SPAWN_PROJECTILE',      5, sSpawnProjectile);
 			hook('S_CREATURE_ROTATE',       2, sCreatureRotate);
 			hook('S_DUNGEON_EVENT_MESSAGE', 2, sDungeonEventMessage);
 			hook('S_QUEST_BALLOON',         1, sQuestBalloon);
-			hook('S_ABNORMALITY_BEGIN',     4, UpdateAbnormality);
-			hook('S_ABNORMALITY_REFRESH',   2, UpdateAbnormality);
+			hook('S_ABNORMALITY_BEGIN',     4, sAbnormalityBegin);
+			// hook('S_ABNORMALITY_REFRESH',   2, UpdateAbnormality);
 			hook('S_ABNORMALITY_END',       1, sAbnormalityEnd);
 			hook('S_ACTION_STAGE',          9, sActionStage);
 		}
@@ -166,11 +171,16 @@ module.exports = function Tera_Guide(mod) {
 	}
 
 	function reset() {
+		TipMsg             = "";
 		// 清除所有定时器
 		mod.clearAllTimeouts();
+		// 清除队员标记
+		partyMakers        = [];
+		UpdateMarkers();
 		// 清除BOSS信息
 		whichboss          = null;
 		boss_GameID        = null;
+		enraged            = false;
 		// DW
 		circleCount        = 0;
 		ballColor          = 0;
@@ -191,26 +201,29 @@ module.exports = function Tera_Guide(mod) {
 		power              = false;
 		Level              = 0;
 		levelMsg           = [];
-		powerMsg           = "";
+		PowerMsg           = "";
 		// AQ_1王
 		myColor            = null;
-		tipMsg             = "";
+		// SOH_3王
+		bossBuff           = 0;
 	}
 
 	function sBossGageInfo(event) {
 		boss_HP = (Number(event.curHp) / Number(event.maxHp));
+		boss_GameID = event.id;
+
 		if (!whichmode) whichmode = event.huntingZoneId;
 		if (!whichboss) whichboss = event.templateId;
-		if (!boss_GameID) boss_GameID = event.id;
 		if (boss_HP <= 0 || boss_HP == 1) reset();
 	}
 
-	function sSpawnNpc(event) {
-		if (!Enabled || SendToStream) return;
+	function sNpcStatus(event) {
+		if (boss_GameID != event.gameId) return;
+		boss_Enraged = event.enraged;
+	}
 
-		if (BossLog && partyMembers.find(obj => obj.gameId != event.owner)) {
-			mod.command.message("Spawn-Npc: [" + event.huntingZoneId + "] " + event.templateId);
-		}
+	function sSpawnNpc(event) {
+		if (!Enabled || CleanItems || SendToStream) return;
 
 		// RK_2王 丢点名球
 		if ([735, 935].includes(event.huntingZoneId) && event.templateId==2007) {
@@ -269,10 +282,6 @@ module.exports = function Tera_Guide(mod) {
 
 	function sDungeonEventMessage(event) {
 		if (!Enabled || !whichmode || !whichboss) return;
-		// var msg_Id = parseInt(event.message.replace('@dungeon:', '') % 1000);
-		// var msg_Id = parseInt(event.message.replace(/[^0-9]/ig, '') % 1000);
-		var msg_Id = parseInt(event.message.match(/\d+/ig)) % 1000;
-		if (BossLog) mod.command.message("D-Message: " + event.message + " | " + msg_Id);
 
 		// DRC_1王 能量满100提醒 下级-9783103 上级-9983103
 		if ([783, 983, 3018].includes(whichmode) && whichboss==1000 && msg_Id==103) {
@@ -310,10 +319,6 @@ module.exports = function Tera_Guide(mod) {
 
 	function sQuestBalloon(event) {
 		if (!Enabled || !whichmode || !whichboss) return;
-		// var msg_Id = parseInt(event.message.replace('@monsterBehavior:', '') % 1000);
-		// var msg_Id = parseInt(event.message.replace(/[^0-9]/ig, '') % 1000);
-		var msg_Id = parseInt(event.message.match(/\d+/ig)) % 1000;
-		if (BossLog) mod.command.message("Q-Balloon: " + event.message + " | " + msg_Id);
 
 		// DW_2王 轮盘选中球的颜色(王的说话)
 		if (whichmode==466 && whichboss==46602) {
@@ -398,25 +403,46 @@ module.exports = function Tera_Guide(mod) {
 		}
 	}
 
-	function UpdateAbnormality(event) {
+	function sAbnormalityBegin(event) {
+		// 金鳞船 亡靈閃電的襲擊 / 海洋魔女的氣息
+		if (event.id==30209101||event.id==30209102) {
+			partyMakers.push({
+				color: event.id % 30209101,
+				target: event.target
+			});
+			UpdateMarkers();
+
+			if (mod.gameId.me.is(event.target)) {
+				mod.setTimeout(() => {
+					sendMessage(SOH_TipMsg[2], 25);
+				}, 2000);
+			}
+		}
+
 		if (!mod.game.me.is(event.target)) return;
 		// AQ_1王 内外圈-鉴定 紅色詛咒氣息 藍色詛咒氣息
-		if (whichmode==3023 && whichboss==1000 && (event.id==30231000||event.id==30231001)) {
+		if (event.id==30231000||event.id==30231001) {
 			myColor = event.id;
 		}
 	}
 
 	function sAbnormalityEnd(event) {
+		// 金鳞船 亡靈閃電的襲擊 / 海洋魔女的氣息
+		if (event.id==30209101||event.id==30209102) {
+			partyMakers = partyMakers.filter(m => m.target != event.target);
+			UpdateMarkers();
+		}
+
 		if (!mod.game.me.is(event.target)) return;
-		// AQ_1王 内外圈-鉴定
-		if (whichmode==3023 && whichboss==1000 && (event.id==30231000||event.id==30231001)) {
+		// AQ_1王 内外圈-鉴定 紅色詛咒氣息 藍色詛咒氣息
+		if (event.id==30231000||event.id==30231001) {
 			myColor = null;
 		}
 	}
 
 	function sActionStage(event) {
-		// 模块关闭 或 不在副本中 或 找不到BOSS血条
-		if (!Enabled || !whichmode || !whichboss) return;
+		// 模块关闭 或 不在副本中
+		if (!Enabled || !whichmode) return;
 
 		// GLS_2 石碑 水波攻击 范围提示
 		if ([782, 982, 3019].includes(whichmode) && [2021, 2022, 2023].includes(event.templateId)) {
@@ -458,11 +484,23 @@ module.exports = function Tera_Guide(mod) {
 			SpawnString(itemID6, 8000, 180, 440);
 		}
 
-		if (whichboss != event.templateId) return;
-
-		if (BossLog) {
-			mod.command.message("Boss-Skill: [" + whichmode + "] " + event.templateId + " - " + event.skill.id + "_" + event.stage);
+		// 金鳞船 - 海浪老兵(弓箭)
+		if (whichmode==3020 && event.templateId==1700) {
+			boss_CurLocation = event.loc;
+			boss_CurAngle = event.w;
+			// 陷阱炸弹
+			if (event.skill.id==1105) {
+				SpawnThing(true, 5000, 0, 0);
+			}
+			// 雷龙
+			if (event.skill.id==1101) {
+				curLocation = event.loc;
+				curAngle = event.w;
+				SpawnString(itemID4, 5000, 180, 1000);
+			}
 		}
+
+		if (whichboss != event.templateId) return;
 
 		skillid = event.skill.id % 1000;     // 愤怒简化 取1000余数运算
 		boss_CurLocation = event.loc;        // BOSS的 x y z 坐标
@@ -493,7 +531,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// DW_2王
-		if (whichmode==466 && event.templateId==46602) {
+		else if (whichmode==466 && event.templateId==46602) {
 			if (event.stage!=0 || !(bossSkillID = DW_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 举球 内外圈 (开场 / 30%重新进场)
 			if (skillid==309||skillid==310) {
@@ -512,7 +550,7 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// FI_1王
-		if ([459, 759].includes(whichmode) && [1001, 1004].includes(event.templateId)) {
+		else if ([459, 759].includes(whichmode) && [1001, 1004].includes(event.templateId)) {
 			if (event.stage!=0 || !(bossSkillID = FI_BOSS_1.find(obj => obj.id==event.skill.id))) return;
 			// 旋转攻击
 			if (event.skill.id==1106||event.skill.id==2106) {
@@ -528,34 +566,34 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// FI_2王
-		if ([459, 759].includes(whichmode) && [1002, 1005].includes(event.templateId)) {
+		else if ([459, 759].includes(whichmode) && [1002, 1005].includes(event.templateId)) {
 			if (event.stage!=0 || !(bossSkillID = FI_BOSS_2.find(obj => obj.id==event.skill.id))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// FI_3王
-		if ([459, 759].includes(whichmode) && event.templateId==1003) {
+		else if ([459, 759].includes(whichmode) && event.templateId==1003) {
 			if (event.stage!=0 || !(bossSkillID = FI_BOSS_3.find(obj => obj.id==event.skill.id))) return;
 			sendMessage(bossSkillID.msg);
 		}
 
 		// DF_1王
-		if ([767, 467].includes(whichmode) && event.templateId==46701) {
+		else if ([767, 467].includes(whichmode) && event.templateId==46701) {
 			if (event.stage!=0 || !(bossSkillID = DF_BOSS_1.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// DF_2王
-		if ([767, 467].includes(whichmode) && event.templateId==46703) {
+		else if ([767, 467].includes(whichmode) && event.templateId==46703) {
 			if (event.stage!=0 || !(bossSkillID = DF_BOSS_2.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// DF_3王
-		if ([767, 467].includes(whichmode) && event.templateId==46704) {
+		else if ([767, 467].includes(whichmode) && event.templateId==46704) {
 			if (event.stage!=0 || !(bossSkillID = DF_BOSS_3.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 
 		// RM_1王
-		if ([770, 970].includes(whichmode) && event.templateId==1000) {
+		else if ([770, 970].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = RM_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 前喷
 			if (skillid==107) {
@@ -565,7 +603,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// RM_2王
-		if ([770, 970].includes(whichmode) && event.templateId==2000) {
+		else if ([770, 970].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = RM_BOSS_2.find(obj => obj.id==skillid))) return;
 			//插地眩晕
 			if (skillid==106) {
@@ -579,7 +617,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// RM_3王
-		if ([770, 970].includes(whichmode) && event.templateId==3000) {
+		else if ([770, 970].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = RM_BOSS_3.find(obj => obj.id==skillid))) return;
 			// 前推坦
 			if (skillid==106) {
@@ -616,7 +654,7 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// VS_1王
-		if ([781, 981].includes(whichmode) && event.templateId==1000) {
+		else if ([781, 981].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = VS_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 内外圈
 			if (skillid==304) {
@@ -633,7 +671,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// VS_2王
-		if ([781, 981].includes(whichmode) && event.templateId==2000) {
+		else if ([781, 981].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = VS_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 左刀
 			if (skillid==130) {
@@ -652,7 +690,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// VS_3王
-		if ([781, 981].includes(whichmode) && event.templateId==3000) {
+		else if ([781, 981].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = VS_BOSS_3.find(obj => obj.id==skillid))) return;
 			if (skillid==103 && !checked) return;
 			// 前盾砸(晕坦) / 甜甜圈
@@ -689,7 +727,7 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// RK_1王
-		if ([735, 935].includes(whichmode) && event.templateId==1000) {
+		else if ([735, 935].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = RK_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 披萨_1 前右
 			if (skillid==315||skillid==319) {
@@ -755,7 +793,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// RK_2王
-		if ([735, 935].includes(whichmode) && event.templateId==2000) {
+		else if ([735, 935].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = RK_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 后喷
 			if (skillid==108) {
@@ -777,7 +815,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// RK_3王
-		if ([735, 935].includes(whichmode) && event.templateId==3000) {
+		else if ([735, 935].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = RK_BOSS_3.find(obj => obj.id==skillid))) return;
 			// 左S拳
 			if (skillid==117||skillid==118) {
@@ -860,12 +898,12 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// RR_1王
-		if ([739, 939].includes(whichmode) && event.templateId==1000) {
+		else if ([739, 939].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = RR_BOSS_1.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// RR_2王
-		if ([739, 939].includes(whichmode) && event.templateId==2000) {
+		else if ([739, 939].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = RR_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 前喷
 			if (skillid==119) {
@@ -880,23 +918,23 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// RR_3王
-		if ([739, 939].includes(whichmode) && event.templateId==3000) {
+		else if ([739, 939].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = RR_BOSS_3.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 
 		// AA_1王
-		if ([720, 920, 3017].includes(whichmode) && event.templateId==1000) {
+		else if ([720, 920, 3017].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = AA_BOSS_1.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// AA_2王
-		if ([720, 920, 3017].includes(whichmode) && event.templateId==2000) {
+		else if ([720, 920, 3017].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = AA_BOSS_2.find(obj => obj.id==skillid))) return;
 			sendMessage(bossSkillID.msg);
 		}
 		// AA_3王
-		if ([720, 920, 3017].includes(whichmode) && event.templateId==3000) {
+		else if ([720, 920, 3017].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = AA_BOSS_3.find(obj => obj.id==skillid))) return;
 			// 后砸技能判定
 			if (skillid==104) {
@@ -922,7 +960,7 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// DRC_1王
-		if ([783, 983, 3018].includes(whichmode) && event.templateId==1000) {
+		else if ([783, 983, 3018].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = DRC_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 后跳(眩晕)
 			if (skillid==108) {
@@ -937,7 +975,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// DRC_2王
-		if ([783, 983, 3018].includes(whichmode) && event.templateId==2000) {
+		else if ([783, 983, 3018].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = DRC_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 点名(击飞)
 			if (skillid==105) {
@@ -950,7 +988,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// DRC_3王
-		if ([783, 983, 3018].includes(whichmode) && event.templateId==3000) {
+		else if ([783, 983, 3018].includes(whichmode) && event.templateId==3000) {
 			if (event.stage!=0 || !(bossSkillID = DRC_BOSS_3.find(obj => obj.id==skillid))) return;
 			// S攻击
 			if (skillid==303||skillid==306) {
@@ -963,7 +1001,7 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// GLS_1王
-		if ([782, 982, 3019].includes(whichmode) && event.templateId==1000) {
+		else if ([782, 982, 3019].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = GLS_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 后喷
 			if (skillid==107) {
@@ -973,7 +1011,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// GLS_2王
-		if ([782, 982, 3019].includes(whichmode) && event.templateId==2000) {
+		else if ([782, 982, 3019].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = GLS_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 内外圈
 			if (skillid==301) { // 捶地+旋转
@@ -996,7 +1034,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// GLS_3王
-		if ([782, 982, 3019].includes(whichmode) && event.templateId==3000) {
+		else if ([782, 982, 3019].includes(whichmode) && event.templateId==3000) {
 			if (!(bossSkillID = GLS_BOSS_3.find(obj => obj.id==skillid))) return;
 			// 蓄电层数计数系统
 			if (whichmode==982) {
@@ -1007,10 +1045,10 @@ module.exports = function Tera_Guide(mod) {
 				if (power) {
 					// 三连击, 左后, 左后 (扩散), 右后, 右后 (扩散), 后砸前砸, 尾巴
 					if ([118, 143, 145, 146, 154, 144, 147, 148, 155, 161, 162, 213, 215].includes(skillid)) {
-						powerMsg = " | " + levelMsg[Level];
+						PowerMsg = " | " + levelMsg[Level];
 						Level++;
 					} else {
-						powerMsg = "";
+						PowerMsg = "";
 					}
 				}
 				// 屏蔽[三连击]技能连续触发充能
@@ -1041,11 +1079,11 @@ module.exports = function Tera_Guide(mod) {
 				SpawnItem(  itemID5, 2000,   0, 450);
 				SpawnThing(true, 2000, bossSkillID.sign_degrees, 250); // 光柱+告示牌
 			}
-			sendMessage(bossSkillID.msg + powerMsg);
+			sendMessage(bossSkillID.msg + PowerMsg);
 		}
 
 		// GV_1王
-		if ([3101, 3201].includes(whichmode) && event.templateId==1000) {
+		else if ([3101, 3201].includes(whichmode) && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = GV_BOSS_1.find(obj => obj.id==skillid))) return;
 			// 右手蓄力
 			if (skillid==148) {
@@ -1092,7 +1130,7 @@ module.exports = function Tera_Guide(mod) {
 			sendMessage(bossSkillID.msg);
 		}
 		// GV_2王
-		if ([3101, 3201].includes(whichmode) && event.templateId==2000) {
+		else if ([3101, 3201].includes(whichmode) && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = GV_BOSS_2.find(obj => obj.id==skillid))) return;
 			if (whichmode==3101 && skillid==227) return;
 			// 前插 后喷
@@ -1117,11 +1155,11 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// AQ_1王
-		if (whichmode==3023 && event.templateId==1000) {
+		else if (whichmode==3023 && event.templateId==1000) {
 			if (event.stage!=0 || !(bossSkillID = AQ_BOSS_1.find(obj => obj.id==event.skill.id))) return;
 			// 前插
 			if (event.skill.id==1110||event.skill.id==2110) {
-				SpawnThing(   false,  100, 180, 180);
+				SpawnThing(   false,  100, 180, 160);
 				SpawnCircle(itemID3, 3000,  10, 220);
 			}
 			// 左右手拉
@@ -1138,16 +1176,16 @@ module.exports = function Tera_Guide(mod) {
 			}
 			// 后扫半圈
 			if (event.skill.id==1115||event.skill.id==2115) {
-				Half_Circle(itemID3, 2000, 20, 160);
-				Half_Circle(itemID3, 2000, 12, 220);
-				Half_Circle(itemID3, 2000, 10, 300);
+				Half_Circle(itemID3, 2000, 20, 130);
+				Half_Circle(itemID3, 2000, 12, 225);
+				Half_Circle(itemID3, 2000, 10, 340);
 			}
 			// 重击
 			if (event.skill.id==3107) {
-				SpawnThing(   false,  100,  90,   60);
-				SpawnString(itemID3, 2000, 170, 1000);
-				SpawnThing(   false,  100, 270,   60);
-				SpawnString(itemID3, 2000, 190, 1000);
+				SpawnThing(   false,  100,  90,   75);
+				SpawnString(itemID3, 2000, 172, 1000);
+				SpawnThing(   false,  100, 270,   75);
+				SpawnString(itemID3, 2000, 188, 1000);
 			}
 			// 旋转攻击
 			if (event.skill.id==3115) {
@@ -1158,21 +1196,21 @@ module.exports = function Tera_Guide(mod) {
 			}
 			// 诅咒
 			if (myColor && (event.skill.id==3119||event.skill.id==3220)) {
-				tipMsg = bossSkillID.TIP[myColor%30231000];
+				TipMsg = bossSkillID.TIP[myColor%30231000];
 			} else {
-				tipMsg = "";
+				TipMsg = "";
 			}
-			sendMessage(bossSkillID.msg + tipMsg);
+			sendMessage(bossSkillID.msg + TipMsg);
 		}
 		// AQ_2王
-		if (whichmode==3023 && event.templateId==2000) {
+		else if (whichmode==3023 && event.templateId==2000) {
 			if (event.stage!=0 || !(bossSkillID = AQ_BOSS_2.find(obj => obj.id==skillid))) return;
 			// 插地板
 			if (skillid==181) {
-				SpawnThing(   false,  100,  90,   60);
-				SpawnString(itemID3, 3000, 170, 1000);
-				SpawnThing(   false,  100, 270,   60);
-				SpawnString(itemID3, 3000, 190, 1000);
+				SpawnThing(   false,  100,  90,   75);
+				SpawnString(itemID3, 3000, 172, 1000);
+				SpawnThing(   false,  100, 270,   75);
+				SpawnString(itemID3, 3000, 188, 1000);
 			}
 			// 后退 | 前搓
 			if (skillid==202) {
@@ -1187,21 +1225,107 @@ module.exports = function Tera_Guide(mod) {
 		}
 
 		// SOH_1王
-		if (whichmode==3020 && event.templateId==1200) {
+		else if (whichmode==3020 && event.templateId==1900) {
 			if (event.stage!=0 || !(bossSkillID = SOH_BOSS_1.find(obj => obj.id==skillid))) return;
-			mod.command.message(whichmode + "-" + skillid + "-" + bossSkillID.msg);
+			sendMessage(bossSkillID.msg);
 		}
 		// SOH_2王
-		if (whichmode==3020 && event.templateId==1900) {
+		else if (whichmode==3020 && event.templateId==1200) {
 			if (event.stage!=0 || !(bossSkillID = SOH_BOSS_2.find(obj => obj.id==skillid))) return;
-			mod.command.message(whichmode + "-" + skillid + "-" + bossSkillID.msg);
+			sendMessage(bossSkillID.msg);
 		}
 		// SOH_3王
-		if (whichmode==3020 && event.templateId==2200) {
-			if (event.stage!=0 || !(bossSkillID = SOH_BOSS_3.find(obj => obj.id==skillid))) return;
-			mod.command.message(whichmode + "-" + skillid + "-" + bossSkillID.msg);
-		}
+		else if (whichmode==3020 && event.templateId==2200) {
+			if (!(bossSkillID = SOH_BOSS_3.find(obj => obj.id==skillid))) return;
+			// 前砸晕坦
+			if (skillid==108) {
+				SpawnThing(   false, 2000, 180, 170);
+				SpawnCircle(itemID4, 2000,  20, 120);
+			}
+			// 直线骷髅
+			if (skillid==129) {
+				SpawnThing(   false,  100,  90,  75);
+				SpawnString(itemID3, 2000, 180, 800);
+				SpawnThing(   false,  100, 270,  75);
+				SpawnString(itemID3, 2000, 180, 800);
+			}
+			// 后擒 -> 扩散4圈
+			if (skillid==133) {
+				if (event.stage==1) {
+					boss_CurLocation = event.dest;
+					boss_CurAngle = event.w;
+					SpawnThing(   false,  100, 0,   0);
+					SpawnCircle(itemID3, 5000, 8, 300);
+					SpawnCircle(itemID3, 5000, 4, 600);
+					SpawnCircle(itemID3, 5000, 4, 900);
+					return;
+				}
+			}
+			// 后擒 -> 转圈 | ↓30% 前砸
+			if (skillid==127) {
+				if (boss_HP > 0.3) {
+					TipMsg = " | " + bossSkillID.TIP[0];
+				} else {
+					TipMsg = " | " + bossSkillID.TIP[1];
+				}
+			} else {
+				TipMsg = "";
+			}
+			// 三连击 开始技能
+			if (skillid==121) {
+				SpawnThing(    true, 3000, 180, enraged?(170+170):170);			// 124 前砸
+				SpawnCircle(itemID4, 3000,   8, 290);
 
+				mod.setTimeout(() => {
+					SpawnCircle(itemID3, 2000, 8, 280);		// -> 125 转圈
+					SpawnCircle(itemID3, 2000, 4, 560);
+				}, 3000);
+				bossBuff = skillid;
+				return;
+			}
+			if (skillid==122) {
+				SpawnCircle(itemID3, 3000, 8, 280);			// 125 转圈
+				SpawnCircle(itemID3, 3000, 4, 560);
+
+				mod.setTimeout(() => {
+					SpawnThing(    true, 2000, 180, enraged?(170+170):170);		// -> 124 前砸
+					SpawnCircle(itemID4, 2000,   8, 290);
+				}, 3000);
+				bossBuff = skillid;
+				return;
+			}
+			// 三连击 结束技能
+			if (skillid==123) {								// 126 大前砸
+				TipMsg = SOH_TipMsg[(bossBuff+skillid) % 221];
+				var delay;
+				if (boss_HP>0.3) {
+					delay = enraged?4000:5000;
+				} else {
+					delay = enraged?6000:7000;
+				}
+				mod.setTimeout(() => {
+					SpawnThing(   false, 2000, 180, enraged?(200+200):200);
+					SpawnCircle(itemID4, 2000,   6, 450);
+				}, delay);
+			}
+			if (skillid==120) {								// 134 大转圈
+				TipMsg = SOH_TipMsg[(bossBuff+skillid) % 221];
+				var delay;
+				if (boss_HP>0.3) {
+					delay = enraged?4000:5000;
+				} else {
+					delay = enraged?6000:7000;
+				}
+				mod.setTimeout(() => {
+					SpawnThing(   false, 2000, 180, enraged?(150+150):150);
+					SpawnCircle(itemID3, 2000,   8, 280);
+				}, delay);
+			}
+			sendMessage(bossSkillID.msg + TipMsg);
+		}
+		else {
+
+		}
 	}
 	// 发送提示文字
 	function sendMessage(msg, chl) {
@@ -1217,7 +1341,7 @@ module.exports = function Tera_Guide(mod) {
 	}
 	// 地面提示(光柱+告示牌)
 	function SpawnThing(show, times, degrees, radius) {          // 是否显示 持续时间 偏移角度 半径距离
-		if (SendToStream) return;
+		if (CleanItems || SendToStream) return;
 
 		var r = null, rads = null, finalrad = null, spawnx = null, spawny = null;
 		r = boss_CurAngle - Math.PI;
@@ -1265,7 +1389,7 @@ module.exports = function Tera_Guide(mod) {
 	}
 	// 地面提示(花朵)
 	function SpawnItem(item, times, degrees, radius) {           // 显示物品 持续时间 偏移角度 半径距离
-		if (SendToStream) return;
+		if (CleanItems || SendToStream) return;
 
 		var r = null, rads = null, finalrad = null, spawnx = null, spawny = null;
 		r = curAngle - Math.PI;
@@ -1306,32 +1430,14 @@ module.exports = function Tera_Guide(mod) {
 	// 构造 后方 半圆形 花圈
 	function Half_Circle(item, times, intervalDegrees, radius) { // 显示物品 持续时间 偏移间隔 半径距离
 		for (var degrees=0; degrees<360; degrees+=intervalDegrees) {
-			if (90<degrees && degrees<270) continue;
+			if (100<degrees && degrees<250) continue;
 			SpawnItem(item, times, degrees, radius);
 		}
 	}
-
-	mod.hook('C_PLAYER_LOCATION', 5, event => {
-		if (!debug) return;
-		boss_CurLocation = event.loc;
-		boss_CurAngle = event.w;
-		curLocation = event.loc;
-		curAngle = event.w;
-	});
-	mod.command.add("a", (a1, a2, a3, a4) => {
-		Number(a1), Number(a2), Number(a3), Number(a4);
-		SpawnThing(a1, a2, a3, a4);
-	});
-	mod.command.add("b", (b1, b2, b3, b4) => {
-		Number(b1), Number(b2), Number(b3), Number(b4);
-		SpawnString(b1, b2, b3, b4);
-	});
-	mod.command.add("c", (c1, c2, c3) => {
-		Number(c1), Number(c2), Number(c3);
-		SpawnCircle(c1, c2, 10, c3);
-	});
-	mod.command.add("d", (d1, d2, d3) => {
-		Number(d1), Number(d2), Number(d3);
-		Half_Circle(d1, d2, 10, d3);
-	});
+	// 更新 队内玩家 标记
+	function UpdateMarkers() {
+		mod.send('S_PARTY_MARKER', 1, {
+			markers: partyMakers
+		});
+	}
 }
