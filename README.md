@@ -1,4 +1,7 @@
 Sea Of Honor Guide Patch 90.2
+
+WARNING: This is still a work in progress, the guide is currently useable- but there will be proxy errors.
+
 ======
 
 Notes:
