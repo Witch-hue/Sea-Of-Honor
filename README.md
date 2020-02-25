@@ -1,4 +1,4 @@
-# Sea Of Honor Dungon Guide Patch 88
+# Sea Of Honor Dungon Guide Patch 90.2
 WARNING: This is still a work in progress, the guide is currently useable- but there will be proxy errors. These can be ignored. and will be fixed later. Requires more testing.
 
 ======
