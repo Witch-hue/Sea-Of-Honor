@@ -1,5 +1,4 @@
-Sea Of Honor Guide Patch 90.2
-
+# Sea Of Honor Dungon Guide Patch 88
 WARNING: This is still a work in progress, the guide is currently useable- but there will be proxy errors.
 
 ======
@@ -9,7 +8,7 @@ Changed /8 Proxy commands from "guide" to "soh" so it does not have issues with 
 
 
 
-# AQ(VF) Dungeon Guide
+# SOH Dungeon Guide
 
 Original Guide: https://github.com/tera-mod/TERA-Guide from ZC.
 
