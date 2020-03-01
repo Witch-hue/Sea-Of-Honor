@@ -1,5 +1,5 @@
 {
-    "disableAutoUpdate": true,
+    "disableAutoUpdate": false,
     "name": "SOH-Guide",
     "options": {
         "niceName": "Sea of Honor",
